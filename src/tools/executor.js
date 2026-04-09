@@ -12,6 +12,9 @@ export async function executeTool(toolName, toolInput, userEmail) {
     case "get_stock_price":
       return await getStockPrice(toolInput.symbol);
 
+    case "get_crypto_price":
+      return await getCryptoPrice(toolInput.coin_id);
+
     case "schedule_recurring_task":
       return await scheduleTask(userEmail, toolInput);
 
@@ -105,6 +108,28 @@ async function getStockPrice(symbol) {
     };
   } catch (err) {
     return { error: `Stock fetch failed: ${err.message}` };
+  }
+}
+
+async function getCryptoPrice(coinId) {
+  try {
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coinId)}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const coin = data[coinId];
+
+    if (!coin) {
+      return { error: `No data found for "${coinId}". Use CoinGecko IDs like bitcoin, ethereum, solana, dogecoin.` };
+    }
+
+    return {
+      coin: coinId,
+      price: `$${coin.usd.toLocaleString()}`,
+      change24h: `${coin.usd_24h_change?.toFixed(2)}%`,
+      marketCap: `$${Math.round(coin.usd_market_cap).toLocaleString()}`
+    };
+  } catch (err) {
+    return { error: `Crypto fetch failed: ${err.message}` };
   }
 }
 

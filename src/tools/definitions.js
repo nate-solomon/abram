@@ -36,6 +36,17 @@ export const toolDefinitions = [
     }
   },
   {
+    name: "get_crypto_price",
+    description: "Get the current price of a cryptocurrency.",
+    input_schema: {
+      type: "object",
+      properties: {
+        coin_id: { type: "string", description: "CoinGecko coin ID (e.g. bitcoin, ethereum, solana, dogecoin)" }
+      },
+      required: ["coin_id"]
+    }
+  },
+  {
     name: "schedule_recurring_task",
     description: "Schedule a recurring task that will run on a cron schedule and email the results to the user.",
     input_schema: {
