@@ -3,7 +3,7 @@ import "dotenv/config";
 import express from "express";
 import { db } from "./db/index.js";
 import { runAgent } from "./agent/claude.js";
-import { sendEmail, validateWebhook } from "./email/agentmail.js";
+import { sendEmail, validateWebhook, fetchMessage } from "./email/agentmail.js";
 import { initScheduler, scheduleTask } from "./scheduler/index.js";
 
 const app = express();
@@ -40,7 +40,20 @@ app.post("/webhook/email", async (req, res) => {
   const fromName = nameMatch ? nameMatch[1].trim() : fromEmail;
   const threadId = msg.thread_id || msg.message_id;
   const subject = msg.subject || "(no subject)";
-  const body = msg.text || stripHtml(msg.html) || "";
+
+  // Prefer extracted_text (just the new reply, no quoted history).
+  // Fall back to text/html. If payload was oversized (body_url present, text missing),
+  // fetch the full message from the API.
+  let body = msg.extracted_text || msg.text || stripHtml(msg.extracted_html || msg.html) || "";
+  if (!body && msg.inbox_id && msg.message_id) {
+    try {
+      console.log("📥 Body missing from webhook, fetching full message...");
+      const full = await fetchMessage(msg.inbox_id, msg.message_id);
+      body = full.extracted_text || full.text || stripHtml(full.extracted_html || full.html) || "";
+    } catch (err) {
+      console.error("⚠️ Failed to fetch full message:", err.message);
+    }
+  }
 
   // Ignore emails from the agent itself to avoid loops
   if (fromEmail === process.env.AGENT_EMAIL) {

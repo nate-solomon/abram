@@ -22,6 +22,10 @@ export async function sendEmail({ to, subject, body, threadId, inReplyTo }) {
   });
 }
 
+export async function fetchMessage(inboxId, messageId) {
+  return await client.inboxes.messages.get(inboxId, messageId);
+}
+
 export function validateWebhook(req) {
   const secret = process.env.WEBHOOK_SECRET;
   if (!secret) return true;
