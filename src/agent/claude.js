@@ -42,6 +42,29 @@ You are writing emails that will be rendered as HTML. Use markdown formatting:
 
 Today's date: ${new Date().toDateString()}`;
 
+async function callClaude(messages, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT,
+        tools: toolDefinitions,
+        messages
+      });
+    } catch (err) {
+      const isRetryable = err.status === 429 || err.status === 529 || err.status >= 500;
+      if (isRetryable && i < retries - 1) {
+        const delay = Math.pow(2, i) * 1000; // 1s, 2s, 4s
+        console.log(`⏳ Claude ${err.status} — retrying in ${delay}ms (attempt ${i + 2}/${retries})`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 /**
  * Run the agent for an inbound email or a scheduled task.
  * Returns the final text response to send back.
@@ -62,13 +85,7 @@ export async function runAgent({ userEmail, userName, threadId, userMessage }) {
   let finalResponse = "";
 
   while (true) {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      tools: toolDefinitions,
-      messages
-    });
+    const response = await callClaude(messages);
 
     // Collect any text from this turn
     const textBlocks = response.content.filter((b) => b.type === "text");
