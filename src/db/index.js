@@ -17,10 +17,12 @@ export const db = {
     return res.rows[0];
   },
 
-  // Thread history for Claude context
+  // Thread history for Claude context (last 6 messages to stay within token limits)
   async getThreadMessages(threadId) {
     const res = await pool.query(
-      `SELECT role, content FROM messages WHERE thread_id = $1 ORDER BY created_at ASC`,
+      `SELECT role, content FROM (
+        SELECT role, content, created_at FROM messages WHERE thread_id = $1 ORDER BY created_at DESC LIMIT 6
+      ) recent ORDER BY created_at ASC`,
       [threadId]
     );
     return res.rows;
