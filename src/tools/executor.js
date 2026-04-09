@@ -140,103 +140,122 @@ async function getCryptoPrice(coinId) {
 }
 
 async function findContact(name, company, context) {
-  const results = { name, company: company || "unknown", sources: {} };
+  const results = { name, company: company || null };
+  const nameParts = name.toLowerCase().split(/\s+/);
+  const first = nameParts[0];
+  const last = nameParts[nameParts.length - 1] || "";
 
-  const searches = [
-    webSearch(`${name}${company ? " " + company : ""} email contact`, 5),
-    webSearch(`${name}${company ? " " + company : ""} LinkedIn`, 3),
-    webSearch(`${name}${company ? " " + company : ""} Twitter X site:x.com OR site:twitter.com`, 3),
+  // Run searches in parallel
+  const searchQueries = [
+    `"${name}"${company ? " " + company : ""} email`,
+    `"${name}"${company ? " " + company : ""} contact`,
+    `"${name}" site:linkedin.com`,
   ];
   if (company) {
-    searches.push(webSearch(`${company} official website domain`, 3));
+    searchQueries.push(`${company} email format`);
+    searchQueries.push(`"@${company.toLowerCase().replace(/[^a-z0-9]/g, "")}" email`);
+    searchQueries.push(`${company} official website`);
   }
 
-  const [contactSearch, linkedinSearch, twitterSearch, domainSearch] = await Promise.all(searches);
+  const searchResults = await Promise.all(searchQueries.map((q) => webSearch(q, 5)));
 
-  results.sources.contactSearch = contactSearch.results || [];
-  results.sources.linkedinSearch = linkedinSearch.results || [];
-  results.sources.twitterSearch = twitterSearch.results || [];
+  // Collect all snippets and URLs
+  const allSnippets = [];
+  const allUrls = [];
+  for (const sr of searchResults) {
+    for (const r of sr.results || []) {
+      if (r.snippet) allSnippets.push(r.snippet);
+      if (r.url) allUrls.push(r.url);
+    }
+  }
 
-  // Try to find their X/Twitter profile
-  const bearer = process.env.X_BEARER_TOKEN;
-  if (bearer) {
-    // Try common handle patterns: lowercase no spaces, first+last, firstlast
-    const nameParts = name.toLowerCase().split(/\s+/);
-    const first = nameParts[0];
-    const last = nameParts[nameParts.length - 1] || "";
-    const handleGuesses = [
-      ...new Set([
-        nameParts.join(""),             // jensenhuang
-        nameParts.join("_"),            // jensen_huang
-        first + last[0],                // jensenh
-        first[0] + last,               // jhuang
-        first,                          // jensen
-        last,                           // huang
-      ].filter(Boolean))
+  // Extract any emails found in search snippets
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  const foundEmails = new Set();
+  for (const snippet of allSnippets) {
+    const matches = snippet.match(emailRegex);
+    if (matches) matches.forEach((e) => foundEmails.add(e.toLowerCase()));
+  }
+  results.emailsFound = [...foundEmails];
+
+  // Detect company domain
+  let domain = null;
+  if (company) {
+    domain = detectDomain(allUrls, company);
+    results.domain = domain;
+
+    // Detect email format from found emails at this domain
+    const domainEmails = results.emailsFound.filter((e) => e.endsWith("@" + domain));
+    if (domainEmails.length > 0) {
+      results.detectedFormat = detectEmailFormat(domainEmails);
+    }
+  }
+
+  // Generate email guesses
+  if (domain && first && last) {
+    const patterns = [
+      { format: "first.last", email: `${first}.${last}@${domain}` },
+      { format: "firstlast", email: `${first}${last}@${domain}` },
+      { format: "first", email: `${first}@${domain}` },
+      { format: "flast", email: `${first[0]}${last}@${domain}` },
+      { format: "first_last", email: `${first}_${last}@${domain}` },
+      { format: "f.last", email: `${first[0]}.${last}@${domain}` },
+      { format: "firstl", email: `${first}${last[0]}@${domain}` },
+      { format: "last.first", email: `${last}.${first}@${domain}` },
     ];
 
-    const xProfiles = [];
-    for (const handle of handleGuesses) {
-      try {
-        const res = await fetch(`https://api.x.com/2/users/by/username/${handle}?user.fields=description,public_metrics,url`, {
-          headers: { Authorization: `Bearer ${bearer}` }
-        });
-        const data = await res.json();
-        if (data.data) {
-          const u = data.data;
-          xProfiles.push({
-            handle: `@${u.username}`,
-            name: u.name,
-            bio: u.description,
-            followers: u.public_metrics?.followers_count,
-            url: u.url,
-            profileUrl: `https://x.com/${u.username}`
-          });
-        }
-      } catch { /* skip */ }
+    // If we detected a format, rank it first
+    if (results.detectedFormat) {
+      patterns.sort((a, b) => {
+        if (a.format === results.detectedFormat) return -1;
+        if (b.format === results.detectedFormat) return 1;
+        return 0;
+      });
     }
-    results.sources.xProfiles = xProfiles;
+
+    results.likelyEmails = patterns.map((p) => ({
+      email: p.email,
+      format: p.format,
+      confidence: p.format === results.detectedFormat ? "high" : "medium"
+    }));
   }
 
-  // Generate email pattern guesses if we have a company
-  if (company) {
-    const domain = extractDomain(domainSearch?.results || [], company);
-    if (domain) {
-      const [first, ...rest] = name.toLowerCase().split(/\s+/);
-      const last = rest[rest.length - 1] || "";
-      results.emailGuesses = {
-        domain,
-        patterns: [
-          `${first}@${domain}`,
-          `${first}.${last}@${domain}`,
-          `${first[0]}${last}@${domain}`,
-          `${first}${last}@${domain}`,
-          `${first}_${last}@${domain}`,
-          `${first[0]}.${last}@${domain}`,
-        ].filter((e) => e.includes("@") && last)
-      };
-    }
-  }
+  // Extract LinkedIn URL if found
+  const linkedinUrl = allUrls.find((u) => u.includes("linkedin.com/in/"));
+  if (linkedinUrl) results.linkedin = linkedinUrl;
+
+  // Include raw search context for Claude to reason over
+  results.searchSnippets = allSnippets.slice(0, 10);
 
   return results;
 }
 
-function extractDomain(searchResults, company) {
+function detectDomain(urls, company) {
   const companyLower = company.toLowerCase().replace(/[^a-z0-9]/g, "");
-  for (const r of searchResults) {
-    if (!r.url) continue;
+  for (const url of urls) {
     try {
-      const hostname = new URL(r.url).hostname.replace("www.", "");
-      // Skip generic sites
-      if (/wikipedia|linkedin|twitter|x\.com|facebook|crunchbase|bloomberg|reuters/i.test(hostname)) continue;
-      // Prefer domains that look related to the company name
+      const hostname = new URL(url).hostname.replace("www.", "");
+      if (/wikipedia|linkedin|twitter|x\.com|facebook|crunchbase|bloomberg|reuters|glassdoor|indeed/i.test(hostname)) continue;
       if (hostname.toLowerCase().includes(companyLower.slice(0, 4))) {
         return hostname;
       }
     } catch { /* skip */ }
   }
-  // Fallback: try company name + .com
   return `${companyLower}.com`;
+}
+
+function detectEmailFormat(emails) {
+  // Analyze found emails to detect the company's format
+  for (const email of emails) {
+    const local = email.split("@")[0];
+    if (local.includes(".")) {
+      const parts = local.split(".");
+      if (parts[0].length === 1) return "f.last";
+      if (parts.length === 2) return "first.last";
+    }
+    if (local.includes("_")) return "first_last";
+  }
+  return null;
 }
 
 async function getXPosts(handles, date, maxPerHandle) {

@@ -65,13 +65,13 @@ export const toolDefinitions = [
   },
   {
     name: "find_contact",
-    description: "Find contact information for a person. Searches the web, checks X/Twitter, and generates likely email patterns from their company domain. Use when the user asks to find someone's email, contact info, or how to reach someone.",
+    description: "Find someone's email address. Searches the web for publicly available contact info, discovers the company's domain and email format, and generates likely email addresses. Use when the user asks to find someone's email or how to reach someone.",
     input_schema: {
       type: "object",
       properties: {
         name: { type: "string", description: "Full name of the person (e.g. 'Jensen Huang')" },
         company: { type: "string", description: "Company or organization they work at (e.g. 'NVIDIA')" },
-        context: { type: "string", description: "Any additional context — role, location, known social handles, etc." }
+        context: { type: "string", description: "Any additional context — role, title, location, etc." }
       },
       required: ["name"]
     }
