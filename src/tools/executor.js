@@ -15,6 +15,9 @@ export async function executeTool(toolName, toolInput, userEmail) {
     case "get_crypto_price":
       return await getCryptoPrice(toolInput.coin_id);
 
+    case "get_x_posts":
+      return await getXPosts(toolInput.handles, toolInput.date, toolInput.max_per_handle || 10);
+
     case "schedule_recurring_task":
       return await scheduleTask(userEmail, toolInput);
 
@@ -131,6 +134,61 @@ async function getCryptoPrice(coinId) {
   } catch (err) {
     return { error: `Crypto fetch failed: ${err.message}` };
   }
+}
+
+async function getXPosts(handles, date, maxPerHandle) {
+  const bearer = process.env.X_BEARER_TOKEN;
+  if (!bearer) return { error: "X_BEARER_TOKEN not configured." };
+
+  const results = {};
+  for (const handle of handles) {
+    try {
+      // Look up user ID
+      const userRes = await fetch(`https://api.x.com/2/users/by/username/${encodeURIComponent(handle)}`, {
+        headers: { Authorization: `Bearer ${bearer}` }
+      });
+      const userData = await userRes.json();
+      if (!userData.data) {
+        results[handle] = { error: `User @${handle} not found` };
+        continue;
+      }
+
+      const userId = userData.data.id;
+      const params = new URLSearchParams({
+        max_results: String(Math.min(maxPerHandle, 100)),
+        "tweet.fields": "created_at,public_metrics,text"
+      });
+
+      if (date) {
+        params.set("start_time", `${date}T00:00:00Z`);
+        // end_time = next day
+        const next = new Date(date);
+        next.setDate(next.getDate() + 1);
+        params.set("end_time", next.toISOString().split("T")[0] + "T00:00:00Z");
+      }
+
+      const tweetsRes = await fetch(`https://api.x.com/2/users/${userId}/tweets?${params}`, {
+        headers: { Authorization: `Bearer ${bearer}` }
+      });
+      const tweetsData = await tweetsRes.json();
+
+      results[handle] = {
+        name: userData.data.name,
+        handle: `@${handle}`,
+        posts: (tweetsData.data || []).map((t) => ({
+          text: t.text,
+          date: t.created_at,
+          likes: t.public_metrics.like_count,
+          retweets: t.public_metrics.retweet_count,
+          replies: t.public_metrics.reply_count,
+          impressions: t.public_metrics.impression_count
+        }))
+      };
+    } catch (err) {
+      results[handle] = { error: `Failed to fetch @${handle}: ${err.message}` };
+    }
+  }
+  return results;
 }
 
 async function scheduleTask(userEmail, input) {

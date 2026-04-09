@@ -47,6 +47,23 @@ export const toolDefinitions = [
     }
   },
   {
+    name: "get_x_posts",
+    description: "Get recent posts from X/Twitter accounts. Returns tweets with engagement metrics. Use this when users ask about what someone posted on X or Twitter.",
+    input_schema: {
+      type: "object",
+      properties: {
+        handles: {
+          type: "array",
+          items: { type: "string" },
+          description: "X/Twitter handles to fetch posts from (without @, e.g. ['elonmusk', 'sama'])"
+        },
+        date: { type: "string", description: "Date to fetch posts for in YYYY-MM-DD format (defaults to today)" },
+        max_per_handle: { type: "number", description: "Max posts per handle (default 10, max 100)" }
+      },
+      required: ["handles"]
+    }
+  },
+  {
     name: "schedule_recurring_task",
     description: "Schedule a recurring task that will run on a cron schedule and email the results to the user.",
     input_schema: {
