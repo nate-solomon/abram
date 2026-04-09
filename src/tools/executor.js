@@ -117,19 +117,95 @@ async function getStockPrice(symbol) {
   }
 }
 
+// Cache the CoinGecko coins list (refreshed every 6 hours)
+let coinListCache = null;
+let coinListFetchedAt = 0;
+
+async function getCoinList() {
+  if (coinListCache && Date.now() - coinListFetchedAt < 6 * 60 * 60 * 1000) {
+    return coinListCache;
+  }
+  const res = await fetch("https://api.coingecko.com/api/v3/coins/list");
+  const data = await res.json();
+  if (!Array.isArray(data)) return coinListCache || []; // rate limited, use stale cache
+  coinListCache = data;
+  coinListFetchedAt = Date.now();
+  return coinListCache;
+}
+
+// Well-known mappings for common tickers that don't match their CoinGecko IDs
+const KNOWN_COINS = {
+  btc: "bitcoin", eth: "ethereum", sol: "solana", doge: "dogecoin",
+  ada: "cardano", xrp: "ripple", dot: "polkadot", avax: "avalanche-2",
+  matic: "matic-network", link: "chainlink", uni: "uniswap", atom: "cosmos",
+  near: "near", apt: "aptos", sui: "sui", arb: "arbitrum",
+  op: "optimism", ftm: "fantom", algo: "algorand", hbar: "hedera-hashgraph",
+  icp: "internet-computer", fil: "filecoin", vet: "vechain", sand: "the-sandbox",
+  mana: "decentraland", aave: "aave", mkr: "maker", crv: "curve-dao-token",
+  ldo: "lido-dao", rpl: "rocket-pool", snx: "havven", comp: "compound-governance-token",
+  ens: "ethereum-name-service", grt: "the-graph", rndr: "render-token",
+  hype: "hyperliquid", jup: "jupiter-exchange-solana", jto: "jito-governance-token",
+  wif: "dogwifcoin", bonk: "bonk", pepe: "pepe", shib: "shiba-inu",
+  floki: "floki", pendle: "pendle", ena: "ethena", w: "wormhole",
+  strk: "starknet", pyth: "pyth-network", tia: "celestia", sei: "sei-network",
+  ton: "the-open-network", ondo: "ondo-finance",
+  jitosol: "jito-staked-sol", msol: "msol", bsol: "blazestake-staked-sol",
+  ore: "ore", ray: "raydium", mnde: "marinade", kmno: "kamino",
+};
+
+async function resolveCoinId(input) {
+  const lower = input.toLowerCase().trim();
+
+  // Check known mappings first
+  if (KNOWN_COINS[lower]) return KNOWN_COINS[lower];
+
+  // Try as a direct CoinGecko ID (e.g. "jito-staked-sol", "bitcoin")
+  const coins = await getCoinList();
+  const directMatch = coins.find((c) => c.id === lower);
+  if (directMatch) return directMatch.id;
+
+  // Search by symbol
+  const matches = coins.filter((c) => c.symbol === lower);
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0].id;
+
+  // Multiple matches — prefer one whose name matches symbol, else shortest ID
+  const exact = matches.find((c) => c.name.toLowerCase() === lower);
+  if (exact) return exact.id;
+
+  matches.sort((a, b) => a.id.length - b.id.length);
+  return matches[0].id;
+}
+
 async function getCryptoPrice(coinId) {
   try {
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coinId)}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
-    const res = await fetch(url);
-    const data = await res.json();
-    const coin = data[coinId];
+    const resolvedId = await resolveCoinId(coinId);
+    if (!resolvedId) {
+      return { error: `No cryptocurrency found for "${coinId}". Try a ticker symbol (BTC, ETH, SOL) or CoinGecko ID.` };
+    }
 
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(resolvedId)}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
+
+    // Retry on 429 rate limit
+    let data;
+    for (let i = 0; i < 3; i++) {
+      const res = await fetch(url);
+      if (res.status === 429) {
+        await new Promise((r) => setTimeout(r, (i + 1) * 2000));
+        continue;
+      }
+      data = await res.json();
+      break;
+    }
+
+    const coin = data?.[resolvedId];
     if (!coin) {
-      return { error: `No data found for "${coinId}". Use CoinGecko IDs like bitcoin, ethereum, solana, dogecoin.` };
+      return { error: `No price data for "${coinId}" (resolved to "${resolvedId}"). CoinGecko may be rate-limiting.` };
     }
 
     return {
-      coin: coinId,
+      coin: resolvedId,
+      symbol: coinId.toUpperCase(),
       price: `$${coin.usd.toLocaleString()}`,
       change24h: `${coin.usd_24h_change?.toFixed(2)}%`,
       marketCap: `$${Math.round(coin.usd_market_cap).toLocaleString()}`
