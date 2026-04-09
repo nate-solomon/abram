@@ -417,7 +417,7 @@ async function listTasks(userEmail) {
   try {
     const tasks = await db.getUserScheduledTasks(userEmail);
     if (tasks.length === 0) return { tasks: [], message: "No active scheduled tasks." };
-    return { tasks: tasks.map((t) => ({ id: t.id, description: t.description, cron: t.cron_expression, created: t.created_at })) };
+    return { tasks: tasks.map((t) => ({ id: t.id, description: t.description, cron: t.cron_expression, prompt: t.task_prompt, created: t.created_at })) };
   } catch (err) {
     return { error: `Failed to list tasks: ${err.message}` };
   }
