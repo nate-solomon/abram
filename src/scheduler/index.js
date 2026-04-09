@@ -26,17 +26,26 @@ export function scheduleTask(task) {
   console.log(`📅 Scheduling task #${task.id}: "${task.description}" [${task.cron_expression}]`);
 
   const cron = new Cron(task.cron_expression, async () => {
-    console.log(`🚀 Running scheduled task #${task.id} for ${task.user_email}`);
+    // Parse clean email from "Name <email>" format
+    const emailMatch = task.user_email.match(/<([^>]+)>/);
+    const cleanEmail = emailMatch ? emailMatch[1] : task.user_email.trim();
+    console.log(`🚀 Running scheduled task #${task.id} for ${cleanEmail}`);
     try {
       const threadId = `scheduled-${task.id}-${Date.now()}`;
+
+      // Ensure user and thread exist before running agent
+      await db.upsertUser(cleanEmail, cleanEmail);
+      await db.upsertThread(threadId, cleanEmail, task.description);
+
       const response = await runAgent({
-        userEmail: task.user_email,
+        userEmail: cleanEmail,
+        userName: cleanEmail,
         threadId,
         userMessage: task.task_prompt
       });
 
       await sendEmail({
-        to: task.user_email,
+        to: cleanEmail,
         subject: `📬 ${task.description}`,
         body: response
       });

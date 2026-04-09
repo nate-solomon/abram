@@ -32,8 +32,12 @@ app.post("/webhook/email", async (req, res) => {
   }
 
   const msg = event.message;
-  const fromEmail = Array.isArray(msg.from_) ? msg.from_[0] : msg.from_;
-  const fromName = fromEmail; // AgentMail from_ is just email strings
+  const rawFrom = Array.isArray(msg.from_) ? msg.from_[0] : msg.from_;
+  // Parse "Name <email>" format or plain email
+  const emailMatch = rawFrom.match(/<([^>]+)>/);
+  const fromEmail = emailMatch ? emailMatch[1] : rawFrom.replace(/.*<|>.*/g, "").trim();
+  const nameMatch = rawFrom.match(/^([^<]+)</);
+  const fromName = nameMatch ? nameMatch[1].trim() : fromEmail;
   const threadId = msg.thread_id || msg.message_id;
   const subject = msg.subject || "(no subject)";
   const body = msg.text || stripHtml(msg.html) || "";
