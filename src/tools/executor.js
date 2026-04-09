@@ -13,7 +13,7 @@ export async function executeTool(toolName, toolInput, userEmail) {
       return await getStockPrice(toolInput.symbol);
 
     case "get_crypto_price":
-      return await getCryptoPrice(toolInput.coin_id);
+      return await getCryptoPrice(toolInput.coin_ids || [toolInput.coin_id]);
 
     case "get_x_posts":
       return await getXPosts(toolInput.handles, toolInput.date, toolInput.max_per_handle || 10);
@@ -133,24 +133,11 @@ async function getCoinList() {
   return coinListCache;
 }
 
-// Well-known mappings for common tickers that don't match their CoinGecko IDs
+// Quick lookup for tickers that don't match their CoinGecko IDs.
+// Falls back to CoinGecko coin list search for anything not here.
 const KNOWN_COINS = {
-  btc: "bitcoin", eth: "ethereum", sol: "solana", doge: "dogecoin",
-  ada: "cardano", xrp: "ripple", dot: "polkadot", avax: "avalanche-2",
-  matic: "matic-network", link: "chainlink", uni: "uniswap", atom: "cosmos",
-  near: "near", apt: "aptos", sui: "sui", arb: "arbitrum",
-  op: "optimism", ftm: "fantom", algo: "algorand", hbar: "hedera-hashgraph",
-  icp: "internet-computer", fil: "filecoin", vet: "vechain", sand: "the-sandbox",
-  mana: "decentraland", aave: "aave", mkr: "maker", crv: "curve-dao-token",
-  ldo: "lido-dao", rpl: "rocket-pool", snx: "havven", comp: "compound-governance-token",
-  ens: "ethereum-name-service", grt: "the-graph", rndr: "render-token",
-  hype: "hyperliquid", jup: "jupiter-exchange-solana", jto: "jito-governance-token",
-  wif: "dogwifcoin", bonk: "bonk", pepe: "pepe", shib: "shiba-inu",
-  floki: "floki", pendle: "pendle", ena: "ethena", w: "wormhole",
-  strk: "starknet", pyth: "pyth-network", tia: "celestia", sei: "sei-network",
-  ton: "the-open-network", ondo: "ondo-finance",
-  jitosol: "jito-staked-sol", msol: "msol", bsol: "blazestake-staked-sol",
-  ore: "ore", ray: "raydium", mnde: "marinade", kmno: "kamino",
+  btc: "bitcoin", eth: "ethereum", sol: "solana",
+  hype: "hyperliquid", ore: "ore", jitosol: "jito-staked-sol",
 };
 
 async function resolveCoinId(input) {
@@ -177,16 +164,23 @@ async function resolveCoinId(input) {
   return matches[0].id;
 }
 
-async function getCryptoPrice(coinId) {
+async function getCryptoPrice(coinIds) {
   try {
-    const resolvedId = await resolveCoinId(coinId);
-    if (!resolvedId) {
-      return { error: `No cryptocurrency found for "${coinId}". Try a ticker symbol (BTC, ETH, SOL) or CoinGecko ID.` };
+    // Resolve all symbols to CoinGecko IDs
+    const resolved = {};
+    for (const id of coinIds) {
+      const geckoId = await resolveCoinId(id);
+      if (geckoId) {
+        resolved[geckoId] = id; // map geckoId -> original input
+      } else {
+        resolved[id] = id; // pass through, will show as not found
+      }
     }
 
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(resolvedId)}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
+    const geckoIds = Object.keys(resolved).join(",");
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(geckoIds)}&vs_currencies=usd&include_24hr_change=true&include_market_cap=true`;
 
-    // Retry on 429 rate limit
+    // Single API call with retry on 429
     let data;
     for (let i = 0; i < 3; i++) {
       const res = await fetch(url);
@@ -198,18 +192,25 @@ async function getCryptoPrice(coinId) {
       break;
     }
 
-    const coin = data?.[resolvedId];
-    if (!coin) {
-      return { error: `No price data for "${coinId}" (resolved to "${resolvedId}"). CoinGecko may be rate-limiting.` };
+    if (!data || data.status) {
+      return { error: "CoinGecko rate limited. Try again in a moment." };
     }
 
-    return {
-      coin: resolvedId,
-      symbol: coinId.toUpperCase(),
-      price: `$${coin.usd.toLocaleString()}`,
-      change24h: `${coin.usd_24h_change?.toFixed(2)}%`,
-      marketCap: `$${Math.round(coin.usd_market_cap).toLocaleString()}`
-    };
+    const results = {};
+    for (const [geckoId, originalInput] of Object.entries(resolved)) {
+      const coin = data[geckoId];
+      if (coin) {
+        results[originalInput.toUpperCase()] = {
+          coin: geckoId,
+          price: `$${coin.usd.toLocaleString()}`,
+          change24h: `${coin.usd_24h_change?.toFixed(2)}%`,
+          marketCap: `$${Math.round(coin.usd_market_cap).toLocaleString()}`
+        };
+      } else {
+        results[originalInput.toUpperCase()] = { error: `No price data for "${originalInput}"` };
+      }
+    }
+    return results;
   } catch (err) {
     return { error: `Crypto fetch failed: ${err.message}` };
   }

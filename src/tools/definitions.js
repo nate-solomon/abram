@@ -37,13 +37,17 @@ export const toolDefinitions = [
   },
   {
     name: "get_crypto_price",
-    description: "Get the current price of a cryptocurrency. Accepts ticker symbols (BTC, ETH, SOL, HYPE, ORE) or CoinGecko IDs (bitcoin, ethereum). Automatically resolves symbols to the correct coin.",
+    description: "Get current prices for one or more cryptocurrencies in a single call. Accepts ticker symbols (BTC, ETH, SOL, HYPE, ORE) or CoinGecko IDs. IMPORTANT: always pass ALL coins in one call to avoid rate limits.",
     input_schema: {
       type: "object",
       properties: {
-        coin_id: { type: "string", description: "Ticker symbol (e.g. BTC, ETH, SOL, HYPE, ORE) or CoinGecko ID (e.g. bitcoin, ethereum, hyperliquid)" }
+        coin_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of ticker symbols or CoinGecko IDs (e.g. ['BTC', 'ETH', 'HYPE', 'ORE', 'JitoSOL'])"
+        }
       },
-      required: ["coin_id"]
+      required: ["coin_ids"]
     }
   },
   {
