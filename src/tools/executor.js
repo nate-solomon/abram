@@ -77,26 +77,31 @@ async function getNews(topic, country = "us", numArticles = 5) {
 }
 
 async function getStockPrice(symbol) {
-  if (!process.env.ALPHA_VANTAGE_KEY) {
-    return { error: "ALPHA_VANTAGE_KEY not configured. Add it to your .env file." };
-  }
   try {
-    const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${process.env.ALPHA_VANTAGE_KEY}`;
-    const res = await fetch(url);
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
     const data = await res.json();
-    const quote = data["Global Quote"];
+    const meta = data.chart?.result?.[0]?.meta;
 
-    if (!quote || !quote["05. price"]) {
+    if (!meta || !meta.regularMarketPrice) {
       return { error: `No data found for symbol ${symbol}` };
     }
 
+    const price = meta.regularMarketPrice;
+    const prevClose = meta.chartPreviousClose;
+    const change = (price - prevClose).toFixed(2);
+    const changePercent = ((change / prevClose) * 100).toFixed(2);
+
     return {
-      symbol,
-      price: quote["05. price"],
-      change: quote["09. change"],
-      changePercent: quote["10. change percent"],
-      volume: quote["06. volume"],
-      latestTradingDay: quote["07. latest trading day"]
+      symbol: meta.symbol,
+      price: price.toFixed(2),
+      previousClose: prevClose.toFixed(2),
+      change,
+      changePercent: `${changePercent}%`,
+      currency: meta.currency,
+      marketState: meta.marketState
     };
   } catch (err) {
     return { error: `Stock fetch failed: ${err.message}` };
