@@ -64,6 +64,19 @@ export const toolDefinitions = [
     }
   },
   {
+    name: "find_contact",
+    description: "Find contact information for a person. Searches the web, checks X/Twitter, and generates likely email patterns from their company domain. Use when the user asks to find someone's email, contact info, or how to reach someone.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Full name of the person (e.g. 'Jensen Huang')" },
+        company: { type: "string", description: "Company or organization they work at (e.g. 'NVIDIA')" },
+        context: { type: "string", description: "Any additional context — role, location, known social handles, etc." }
+      },
+      required: ["name"]
+    }
+  },
+  {
     name: "schedule_recurring_task",
     description: "Schedule a recurring task that will run on a cron schedule and email the results to the user.",
     input_schema: {

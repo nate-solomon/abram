@@ -18,6 +18,9 @@ export async function executeTool(toolName, toolInput, userEmail) {
     case "get_x_posts":
       return await getXPosts(toolInput.handles, toolInput.date, toolInput.max_per_handle || 10);
 
+    case "find_contact":
+      return await findContact(toolInput.name, toolInput.company, toolInput.context);
+
     case "schedule_recurring_task":
       return await scheduleTask(userEmail, toolInput);
 
@@ -134,6 +137,106 @@ async function getCryptoPrice(coinId) {
   } catch (err) {
     return { error: `Crypto fetch failed: ${err.message}` };
   }
+}
+
+async function findContact(name, company, context) {
+  const results = { name, company: company || "unknown", sources: {} };
+
+  const searches = [
+    webSearch(`${name}${company ? " " + company : ""} email contact`, 5),
+    webSearch(`${name}${company ? " " + company : ""} LinkedIn`, 3),
+    webSearch(`${name}${company ? " " + company : ""} Twitter X site:x.com OR site:twitter.com`, 3),
+  ];
+  if (company) {
+    searches.push(webSearch(`${company} official website domain`, 3));
+  }
+
+  const [contactSearch, linkedinSearch, twitterSearch, domainSearch] = await Promise.all(searches);
+
+  results.sources.contactSearch = contactSearch.results || [];
+  results.sources.linkedinSearch = linkedinSearch.results || [];
+  results.sources.twitterSearch = twitterSearch.results || [];
+
+  // Try to find their X/Twitter profile
+  const bearer = process.env.X_BEARER_TOKEN;
+  if (bearer) {
+    // Try common handle patterns: lowercase no spaces, first+last, firstlast
+    const nameParts = name.toLowerCase().split(/\s+/);
+    const first = nameParts[0];
+    const last = nameParts[nameParts.length - 1] || "";
+    const handleGuesses = [
+      ...new Set([
+        nameParts.join(""),             // jensenhuang
+        nameParts.join("_"),            // jensen_huang
+        first + last[0],                // jensenh
+        first[0] + last,               // jhuang
+        first,                          // jensen
+        last,                           // huang
+      ].filter(Boolean))
+    ];
+
+    const xProfiles = [];
+    for (const handle of handleGuesses) {
+      try {
+        const res = await fetch(`https://api.x.com/2/users/by/username/${handle}?user.fields=description,public_metrics,url`, {
+          headers: { Authorization: `Bearer ${bearer}` }
+        });
+        const data = await res.json();
+        if (data.data) {
+          const u = data.data;
+          xProfiles.push({
+            handle: `@${u.username}`,
+            name: u.name,
+            bio: u.description,
+            followers: u.public_metrics?.followers_count,
+            url: u.url,
+            profileUrl: `https://x.com/${u.username}`
+          });
+        }
+      } catch { /* skip */ }
+    }
+    results.sources.xProfiles = xProfiles;
+  }
+
+  // Generate email pattern guesses if we have a company
+  if (company) {
+    const domain = extractDomain(domainSearch?.results || [], company);
+    if (domain) {
+      const [first, ...rest] = name.toLowerCase().split(/\s+/);
+      const last = rest[rest.length - 1] || "";
+      results.emailGuesses = {
+        domain,
+        patterns: [
+          `${first}@${domain}`,
+          `${first}.${last}@${domain}`,
+          `${first[0]}${last}@${domain}`,
+          `${first}${last}@${domain}`,
+          `${first}_${last}@${domain}`,
+          `${first[0]}.${last}@${domain}`,
+        ].filter((e) => e.includes("@") && last)
+      };
+    }
+  }
+
+  return results;
+}
+
+function extractDomain(searchResults, company) {
+  const companyLower = company.toLowerCase().replace(/[^a-z0-9]/g, "");
+  for (const r of searchResults) {
+    if (!r.url) continue;
+    try {
+      const hostname = new URL(r.url).hostname.replace("www.", "");
+      // Skip generic sites
+      if (/wikipedia|linkedin|twitter|x\.com|facebook|crunchbase|bloomberg|reuters/i.test(hostname)) continue;
+      // Prefer domains that look related to the company name
+      if (hostname.toLowerCase().includes(companyLower.slice(0, 4))) {
+        return hostname;
+      }
+    } catch { /* skip */ }
+  }
+  // Fallback: try company name + .com
+  return `${companyLower}.com`;
 }
 
 async function getXPosts(handles, date, maxPerHandle) {
