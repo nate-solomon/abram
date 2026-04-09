@@ -9,7 +9,7 @@ Express server receives inbound emails via AgentMail webhook → runs a Claude a
 ```
 Email in → AgentMail webhook → POST /webhook/email → runAgent() → Claude tool loop → sendEmail() reply
                                                                          ↓
-                                                              Tools: web search, news, stocks, crypto, scheduling
+                                                              Tools: web search, news, stocks, crypto, X/Twitter, scheduling
 ```
 
 ## Project Structure
@@ -19,7 +19,7 @@ src/
   index.js              # Express server, webhook handler, startup
   agent/claude.js       # Claude agentic loop (tool use cycle until end_turn)
   tools/definitions.js  # Tool schemas passed to Claude
-  tools/executor.js     # Tool implementations (web search, news, stocks, crypto, scheduling)
+  tools/executor.js     # Tool implementations (web search, news, stocks, crypto, X/Twitter, scheduling)
   email/agentmail.js    # AgentMail SDK — send/reply emails, Svix webhook verification
   db/index.js           # Postgres queries via pg pool
   scheduler/index.js    # Cron task management via croner
@@ -52,6 +52,7 @@ Tools should return plain objects (JSON-serializable). Return `{ error: "..." }`
 - **CoinGecko** — crypto prices (free, no key)
 - **DuckDuckGo** — web search (free, no key)
 - **NewsAPI** — news articles (requires NEWS_API_KEY)
+- **X/Twitter API v2** — fetch user tweets with date filtering and engagement metrics (requires X_BEARER_TOKEN)
 
 ## Deployment
 
@@ -70,7 +71,7 @@ Four tables: `users` (email PK), `threads` (id PK, user_email FK), `messages` (t
 ## Environment Variables
 
 Required: `ANTHROPIC_API_KEY`, `AGENTMAIL_API_KEY`, `AGENT_EMAIL`, `DATABASE_URL`, `WEBHOOK_SECRET` (Svix whsec_ format)
-Optional: `NEWS_API_KEY`, `ALPHA_VANTAGE_KEY`, `PORT` (default 3000)
+Optional: `X_BEARER_TOKEN`, `NEWS_API_KEY`, `ALPHA_VANTAGE_KEY`, `PORT` (default 3000)
 
 ## Commands
 
