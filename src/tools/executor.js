@@ -200,11 +200,13 @@ async function getCryptoPrice(coinIds) {
     for (const [geckoId, originalInput] of Object.entries(resolved)) {
       const coin = data[geckoId];
       if (coin) {
+        const price = coin.usd;
+        const change24h = coin.usd_24h_change;
         results[originalInput.toUpperCase()] = {
           coin: geckoId,
-          price: `$${coin.usd.toLocaleString()}`,
-          change24h: `${coin.usd_24h_change?.toFixed(2)}%`,
-          marketCap: `$${Math.round(coin.usd_market_cap).toLocaleString()}`
+          price: typeof price === "number" ? parseFloat(price.toFixed(6)) : price,
+          change24h: change24h ? `${change24h.toFixed(2)}%` : "N/A",
+          marketCap: Math.round(coin.usd_market_cap)
         };
       } else {
         results[originalInput.toUpperCase()] = { error: `No price data for "${originalInput}"` };
